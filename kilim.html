@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kilim motif</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<style>
+  html, body { margin: 0; background: #ece8e0; }
+  body { display: flex; justify-content: center; }
+  canvas { height: 100vh !important; width: auto !important; }
+  #help { position: fixed; left: 10px; top: 10px; font: 12px monospace; color: #333;
+          background: rgba(255,255,255,.75); padding: 6px 8px; }
+</style>
+</head>
+<body>
+<div id="help">SPACE new | P palette | S save PNG</div>
+<script>
+// Kilim motif (single element), 1080x1080
+const CELL = 14, GW = 57, GH = 65, HX = 28, HY = 32;
+const TANB = 1, RED = 2, BLK = 4;
+const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
+const PALS = [
+  { paper: [238, 232, 220], t: [186, 168, 138], r: [200, 40, 35], k: [34, 26, 26], m: [92, 22, 24] },
+  { paper: [236, 230, 214], t: [214, 172, 72],  r: [38, 76, 130], k: [24, 22, 30], m: [22, 40, 80] },
+  { paper: [238, 232, 220], t: [158, 176, 150], r: [190, 80, 45], k: [30, 34, 32], m: [92, 50, 30] }
+];
+let PALI = 0;
+let grid = [], grain = [], R = 11;
+
+function setup() {
+  createCanvas(1080, 1080);
+  noStroke();
+  noLoop();
+  generate();
+}
+
+const ri = (a, b) => floor(random(a, b));
+
+// ---------- grid helpers (4-fold mirror) ----------
+function mirror4(x, y) { return [[x, y], [-x, y], [x, -y], [-x, -y]]; }
+
+function put4(x, y, bit) {
+  for (const [sx, sy] of mirror4(x, y)) {
+    if (abs(sx) > HX || abs(sy) > HY) continue;
+    grid[sx + HX][sy + HY] |= bit;
+  }
+}
+
+function paintCell(x, y, col) {   // replaces whole cell
+  for (const [sx, sy] of mirror4(x, y)) {
+    if (abs(sx) > HX || abs(sy) > HY) continue;
+    grid[sx + HX][sy + HY] = col;
+  }
+}
+
+function block(x, y, t, bit) {
+  for (let i = 0; i < t; i++) for (let j = 0; j < t; j++) put4(x + i, y + j, bit);
+}
+
+// ---------- elements ----------
+function stairBand(k, off, w, dmin, dmax, bit) {
+  for (let x = 0; x <= HX; x++) {
+    for (let y = 0; y <= HY; y++) {
+      const v = x - y * k;
+      const d = x + y;
+      if (abs(v - off) <= w && d >= dmin && d <= dmax) put4(x, y, bit);
+    }
+  }
+}
+
+function spiral(x, y, len, bit, t) {
+  let dir = ri(0, 4);
+  const turn = random() < 0.5 ? 1 : 3;
+  let seg = 0;
+  while (len > t) {
+    for (let s = 0; s < len; s++) {
+      block(x, y, t, bit);
+      x += DX[dir]; y += DY[dir];
+    }
+    dir = (dir + turn) % 4;
+    seg++;
+    if (seg % 2 === 0) len -= t;
+  }
+}
+
+function arm(bit, x, y, segs, t) {   // stepped hook ending in a curl
+  let sx = 1, sy = 1;
+  for (let s = 0; s < segs; s++) {
+    const horiz = s % 2 === 0;
+    const n = ri(2, 6);
+    for (let i = 0; i < n; i++) {
+      block(x, y, t, bit);
+      if (horiz) x += sx; else y += sy;
+    }
+    if (random() < 0.25) { if (horiz) sy = -sy; else sx = -sx; }
+  }
+  spiral(x, y, ri(5, 9), bit, t);
+}
+
+function redBlob(px, py, r) {        // red diamond with black spiral on top
+  for (let ax = -r; ax <= r; ax++) {
+    for (let ay = -r; ay <= r; ay++) {
+      if (abs(ax) + abs(ay) <= r) put4(px + ax, py + ay, RED);
+    }
+  }
+  spiral(px - floor(r / 2), py - floor(r / 2), r, BLK, 1);
+}
+
+function medallion() {
+  const ringCol = new Array(R + 2).fill(0);
+  let d = R, prev = -1;
+  while (d >= 5) {
+    let col = [RED, BLK, 0][ri(0, 3)];
+    while (col === prev || (d === R && col === 0)) col = [RED, BLK, 0][ri(0, 3)];
+    prev = col;
+    const run = ri(1, 4);
+    for (let i = 0; i < run && d >= 5; i++) ringCol[d--] = col;
+  }
+  const cm = ri(0, 3);
+  if (cm === 0) { ringCol[4] = 0; ringCol[3] = BLK; ringCol[2] = 0; ringCol[1] = 0; ringCol[0] = BLK; }
+  else if (cm === 1) { ringCol[4] = RED; ringCol[3] = 0; ringCol[2] = BLK; ringCol[1] = 0; ringCol[0] = RED; }
+  else { for (let i = 0; i < 5; i++) ringCol[i] = 0; }
+  const teeth = random() < 0.5;
+  for (let x = 0; x <= R + 1; x++) {
+    for (let y = 0; y <= R + 1 - x; y++) {
+      const dd = x + y;
+      if (dd === R + 1) { if (teeth && x % 2 === 0) paintCell(x, y, BLK); continue; }
+      let col = ringCol[dd];
+      if (cm === 2 && dd <= 4 && (x === 0 || y === 0)) col = BLK;
+      paintCell(x, y, col);
+    }
+  }
+}
+
+function putAxis(horiz, a, b, col) { if (horiz) put4(a, b, col); else put4(b, a, col); }
+
+function stack(horiz, start, limit) {
+  let a = start;
+  while (a < limit - 1) {
+    const kind = ri(0, 4);
+    const col = random() < 0.65 ? BLK : RED;
+    const gap = ri(1, 3);
+    if (kind === 0 || kind === 3) {
+      const w = kind === 0 ? ri(2, 6) : ri(1, 3);
+      const inward = random() < 0.5;
+      for (let r = 0; r <= w; r++) {
+        const half = inward ? r : w - r;
+        for (let b = 0; b <= half; b++) putAxis(horiz, a + r, b, col);
+      }
+      a += w + 1 + gap;
+    } else if (kind === 1) {
+      const k = ri(1, 4);
+      for (let ax = -k; ax <= k; ax++) {
+        for (let ay = -k; ay <= k; ay++) {
+          if (abs(ax) + abs(ay) <= k) putAxis(horiz, a + k + ax, ay, col);
+        }
+      }
+      a += 2 * k + 1 + gap;
+    } else {
+      putAxis(horiz, a, 0, col);
+      a += 1 + gap;
+    }
+  }
+}
+
+function miniMedallion() {
+  const a0 = ri(R + 8, HX - 4);
+  for (let ax = -3; ax <= 3; ax++) {
+    for (let ay = -3; ay <= 3; ay++) {
+      const d = abs(ax) + abs(ay);
+      if (d > 3) continue;
+      let col = 0;
+      if (d === 3) col = RED;
+      else if (ax === 0 || ay === 0) col = BLK;
+      paintCell(a0 + ax, ay, col);
+    }
+  }
+}
+
+function dots() {
+  const n = ri(10, 28);
+  for (let i = 0; i < n; i++) {
+    const side = random() < 0.5;
+    const x = side ? ri(6, HX) : ri(0, 5);
+    const y = side ? ri(0, 5) : ri(6, HY);
+    put4(x, y, random() < 0.6 ? BLK : RED);
+  }
+}
+
+// ---------- compose ----------
+function generate() {
+  grid = [];
+  for (let x = 0; x < GW; x++) grid[x] = new Array(GH).fill(0);
+  R = ri(9, 14);
+
+  const bands = ri(1, 3);
+  for (let i = 0; i < bands; i++) stairBand(random(0.4, 2), ri(2, 10), ri(1, 3), R - 4, R + ri(10, 22), RED);
+  const arms = ri(2, 4);
+  for (let i = 0; i < arms; i++) arm(TANB, ri(2, R - 2), ri(2, R - 2), ri(3, 6), ri(2, 4));
+  const blobs = ri(1, 3);
+  for (let i = 0; i < blobs; i++) redBlob(ri(8, HX - 10), ri(8, HY - 10), ri(5, 9));
+
+  medallion();
+  stack(false, R + 3, HY);
+  stack(true, R + 3, HX);
+  miniMedallion();
+  dots();
+
+  grain = [];
+  for (let i = 0; i < 4500; i++) grain.push([random(width), random(height), random(1, 3), random() < 0.6]);
+}
+
+function draw() {
+  const pl = PALS[PALI];
+  background(...pl.paper);
+  const ox = (width - GW * CELL) / 2, oy = (height - GH * CELL) / 2;
+  for (let x = 0; x < GW; x++) {
+    for (let y = 0; y < GH; y++) {
+      const m = grid[x][y];
+      let c = null;
+      if (m & BLK) c = pl.k;
+      else if ((m & 3) === 3) c = pl.m;
+      else if (m & RED) c = pl.r;
+      else if (m & TANB) c = pl.t;
+      if (!c) continue;
+      fill(...c);
+      rect(ox + x * CELL, oy + y * CELL, CELL, CELL);
+    }
+  }
+  for (const g of grain) {
+    if (g[3]) fill(...pl.paper, 110); else fill(40, 30, 25, 26);
+    rect(g[0], g[1], g[2], g[2]);
+  }
+}
+
+function keyPressed() {
+  if (key === 's' || key === 'S') { saveCanvas('kilim-motif', 'png'); return false; }
+  if (key === 'p' || key === 'P') PALI = (PALI + 1) % PALS.length;
+  else if (key !== ' ') return;
+  generate();
+  redraw();
+  return false;
+}
+</script>
+</body>
+</html>
